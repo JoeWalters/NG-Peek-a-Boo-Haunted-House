@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Peek-a-Boo Haunted House</title>
+<style>
+  html, body {
+    margin: 0; padding: 0;
+    width: 100%; height: 100%;
+    overflow: hidden;
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    touch-action: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    background: #0c1a2e;
+    overscroll-behavior: none;
+    font-family: -apple-system, "Comic Sans MS", "Marker Felt", sans-serif;
+  }
+  #game {
+    position: fixed;
+    left: 0; top: 0;
+    width: 100vw; height: 100vh;
+    display: block;
+  }
+  /* TAP TO PLAY overlay */
+  #startOverlay {
+    position: fixed;
+    left: 0; top: 0; right: 0; bottom: 0;
+    width: 100vw; height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    background: radial-gradient(circle at 50% 30%, #2a3d66 0%, #0c1a2e 100%);
+    z-index: 999;
+    touch-action: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    text-align: center;
+    color: #fff;
+    transition: opacity .4s ease;
+  }
+  #startOverlay.hidden { opacity: 0; pointer-events: none; }
+  #startOverlay h1 {
+    font-size: clamp(30px, 9vw, 64px);
+    margin: 0 0 6px 0;
+    letter-spacing: 1px;
+    text-shadow: 0 4px 0 #7b3fbf, 0 6px 18px rgba(0,0,0,.6);
+  }
+  #startOverlay .ghost-emoji { font-size: clamp(52px, 15vw, 96px); margin: 10px 0; animation: bob 1.6s ease-in-out infinite; }
+  #startOverlay .tapBtn {
+    margin-top: 22px;
+    font-size: clamp(28px, 8vw, 52px);
+    font-weight: bold;
+    color: #ffd94a;
+    text-shadow: 0 3px 0 #7b3fbf;
+    background: rgba(255,255,255,.12);
+    border: 4px solid #ffd94a;
+    border-radius: 60px;
+    padding: 16px 38px;
+    animation: pulse 1.4s ease-in-out infinite;
+    pointer-events: none;
+  }
+  #startOverlay .hint {
+    margin-top: 26px;
+    font-size: clamp(15px, 4vw, 24px);
+    color: #cfd8ff;
+    max-width: 90vw;
+    line-height: 1.5;
+  }
+  @keyframes bob { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-14px)} }
+  @keyframes pulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.08)} }
+  #starCounter {
+    position: fixed;
+    top: calc(env(safe-area-inset-top) + 10px);
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 50;
+    background: linear-gradient(180deg, #ffd94a, #ffb02e);
+    border-radius: 40px;
+    padding: 8px 24px;
+    font-size: clamp(24px, 7vw, 44px);
+    font-weight: 900;
+    color: #7b3fbf;
+    box-shadow: 0 4px 0 #7b3fbf, 0 6px 16px rgba(0,0,0,.5);
+    border: 3px solid #fff;
+    display: flex; align-items: center; gap: 10px;
+    white-space: nowrap;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    touch-action: none;
+    pointer-events: none;
+  }
+  #starCounter .star { font-size: 1.2em; }
+</style>
+</head>
+<body>
+
+<canvas id="game"></canvas>
+
+<div id="startOverlay">
+  <div class="ghost-emoji">👻</div>
+  <h1>Peek-a-Boo</h1>
+  <h1 style="font-size:clamp(34px,10vw,72px); margin-top:-18px;">Haunted House</h1>
+  <div class="tapBtn">TAP TO PLAY!</div>
+  <div class="hint">Tap the friendly ghosts, silly monsters and goofy zombies hiding in the house. They love to play peek-a-boo!</div>
+</div>
+
+<div id="starCounter"><span class="star">⭐</span><span id="starNum">0</span></div>
+
+<script>
+"use strict";
+
+(function () {
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const startOverlay = document.getElementById('startOverlay');
+  const starNumEl = document.getElementById('starNum');
+
+  let W = 0, H = 0, dpr = 1;
+  let audioCtx = null, audioReady = false;
+  let bgMusicTimer = null;
+
+  /* ---------- resize / fit ---------- */
+  function resize() {
+    W = window.innerWidth;
+    H = window.innerHeight;
+    dpr = Math.min(window.devicePixelRatio || 1, 3);
+    canvas.width = Math.floor(W * dpr);
+    canvas.height = Math.floor(H * dpr);
+    canvas.style.width = W + 'px';
+    canvas.style.height = H + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    buildHouse();
+  }
+
+  /* ---------- game state ---------- */
+  const spots = [];      // windows/doors with spawn slots
+  const characters = []; // active peeking characters
+  const stars = [];      // floating star particles
+  const sparks = [];     // little sparkle bursts
+  let starCount = 0;
+  let spawnTimer = 0;
+  let frame = 0;
+  let time = 0;
+
+  const rng = (() => {
+    let s = 42;
+    return () => (s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+  })();
+
+  /* ---------- audio (iOS safe) ---------- */
+  function ensureAudio() {
+    if (audioCtx) return;
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      audioCtx = new AC();
+      audioCtx.resume && audioCtx.resume();
+      audioReady = true;
+    } catch (e) { audioReady = false; }
+  }
+
+  function synthGiggle() {
+    if (!audioCtx) return;
+    const c = audioCtx, t = c.currentTime;
+    const notes = [880, 990, 660, 740];
+    notes.forEach(function (f, i) {
+      const o = c.createOscillator(), g = c.createGain();
+      o.type = 'triangle';
+      o.frequency.value = f;
+      const start = t + i * 0.14;
+      o.start(start);
+      g.gain.setValueAtTime(0.0001, start);
+      g.gain.exponentialRampToValueAtTime(0.25, start + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, start + 0.12);
+      o.stop(start + 0.16);
+      o.connect(g); g.connect(c.destination);
+    });
+  }
+
+  function synthPop() {
+    if (!audioCtx) return;
+    const c = audioCtx, t = c.currentTime;
+    const o = c.createOscillator(), g = c.createGain();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(180, t);
+    o.frequency.exponentialRampToValueAtTime(420, t + 0.09);
+    o.start(t);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.5, t + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.14);
+    o.stop(t + 0.16);
+    o.connect(g); g.connect(c.destination);
+  }
+
+  function synthTune() {
+    if (!audioCtx) return;
+    const c = audioCtx, t = c.currentTime;
+    const melody = [523, 659, 784, 659, 523, 587, 659, 523];
+    melody.forEach(function (f, i) {
+      const o = c.createOscillator(), g = c.createGain();
+      o.type = 'sine';
+      o.frequency.value = f;
+      const start = t + i * 0.5;
+      o.start(start);
+      g.gain.setValueAtTime(0.0001, start);
+      g.gain.exponentialRampToValueAtTime(0.08, start + 0.05);
+      g.gain.exponentialRampToValueAtTime(0.0001, start + 0.4);
+      o.stop(start + 0.5);
+      o.connect(g); g.connect(c.destination);
+    });
+  }
+
+  function startMusic() {
+    if (!audioCtx || bgMusicTimer) return;
+    synthTune();
+    bgMusicTimer = setInterval(function () { if (audioCtx) synthTune(); }, 4000);
+  }
+
+  /* ---------- procedural drawing helpers ---------- */
+  function roundRect(x, y, w, h, r) {
+    r = Math.min(r, w / 2, h / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  function star(x, y, s, rot) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(rot);
+    ctx.beginPath();
+    for (let i = 0; i < 10; i++) {
+      const r = i % 2 === 0 ? s : s * 0.42;
+      const a = -Math.PI / 2 + i * Math.PI / 5;
+      const px = Math.cos(a) * r, py = Math.sin(a) * r;
+      i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fillStyle = '#fff';
+    ctx.fill();
+    ctx.fillStyle = '#ffd94a';
+    ctx.globalAlpha = 0.85;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+
+  /* ---------- characters (procedural) ---------- */
+  function drawGhost(x, y, s, t, bounce) {
+    const bob = Math.sin(t * 3) * 4 * s;
+    ctx.save();
+    ctx.translate(x, y + bob - (bounce ? Math.sin(bounce * 12) * 12 * s : 0));
+    ctx.scale(s, s);
+    // body
+    ctx.beginPath();
+    ctx.moveTo(0, -78);
+    ctx.quadraticCurveTo(22, -52, 22, 0);
+    for (let i = 0; i < 6; i++) ctx.quadraticCurveTo(22, 28 + i * 14, 14 + (i % 2 ? 6 : -6), 26 + i * 14);
+    ctx.quadraticCurveTo(-22, 88, -22, 0);
+    ctx.quadraticCurveTo(-22, -52, 0, -78);
+    ctx.closePath();
+    ctx.fillStyle = '#ffffff';
+    ctx.fill();
+    ctx.strokeStyle = '#b8c4ff'; ctx.lineWidth = 3; ctx.stroke();
+    // eyes
+    ctx.fillStyle = '#3a4fae';
+    ctx.beginPath(); ctx.arc(-9, -38, 7, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(9, -38, 7, 0, 7); ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(-9 - 2, -40, 2.5, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(9 - 2, -40, 2.5, 0, 7); ctx.fill();
+    // smile
+    ctx.strokeStyle = '#3a4fae'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(0, -18, 8, 0.2, Math.PI - 0.2); ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawZombie(x, y, s, t, bounce) {
+    const sway = Math.sin(t * 2.2) * 3 * s;
+    ctx.save();
+    ctx.translate(x + sway, y - (bounce ? Math.sin(bounce * 10) * 12 * s : 0));
+    ctx.scale(s, s);
+    // body
+    roundRect(-24, -62, 48, 62, 14);
+    ctx.fillStyle = '#8fd47a'; ctx.fill();
+    ctx.strokeStyle = '#4f8f3a'; ctx.lineWidth = 3; ctx.stroke();
+    // patch
+    roundRect(-14, -20, 16, 14, 4); ctx.fillStyle = '#6fb85a'; ctx.fill();
+    // head
+    ctx.beginPath(); ctx.arc(0, -76, 24, 0, 7); ctx.fillStyle = '#9be08a'; ctx.fill(); ctx.strokeStyle = '#4f8f3a'; ctx.stroke();
+    // eyes (goofy)
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(-9, -80, 9, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(9, -80, 9, 0, 7); ctx.fill();
+    ctx.fillStyle = '#1a4a1a';
+    ctx.beginPath(); ctx.arc(-9, -80, 5, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(9, -80, 5, 0, 7); ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(-11, -82, 2, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(7, -82, 2, 0, 7); ctx.fill();
+    // crooked mouth
+    ctx.strokeStyle = '#2e5a2e'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(-8, -56); ctx.lineTo(2, -62); ctx.lineTo(10, -58); ctx.stroke();
+    // little green hair tuft
+    ctx.fillStyle = '#4f8f3a';
+    ctx.beginPath(); ctx.arc(0, -98, 8, Math.PI, 0); ctx.fill();
+    ctx.restore();
+  }
+
+  function drawMonster(x, y, s, t, bounce) {
+    const wig = Math.sin(t * 2.6) * 3 * s;
+    ctx.save();
+    ctx.translate(x + wig, y - (bounce ? Math.sin(bounce * 11) * 12 * s : 0));
+    ctx.scale(s, s);
+    // body
+    roundRect(-26, -58, 52, 58, 16);
+    ctx.fillStyle = '#c77bff'; ctx.fill();
+    ctx.strokeStyle = '#9b4fd6'; ctx.lineWidth = 3; ctx.stroke();
+    // belly spots
+    ctx.fillStyle = '#e0b8ff';
+    ctx.beginPath(); ctx.arc(-8, -30, 6, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(10, -40, 5, 0, 7); ctx.fill();
+    // head with horns
+    ctx.beginPath(); ctx.arc(0, -78, 22, 0, 7); ctx.fillStyle = '#c77bff'; ctx.fill(); ctx.strokeStyle = '#9b4fd6'; ctx.stroke();
+    ctx.fillStyle = '#9b4fd6';
+    ctx.beginPath(); ctx.moveTo(-14, -96); ctx.lineTo(-10, -110); ctx.lineTo(-4, -98); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(4, -98); ctx.lineTo(10, -110); ctx.lineTo(14, -96); ctx.fill();
+    // big eyes
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(-9, -80, 9, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(9, -80, 9, 0, 7); ctx.fill();
+    ctx.fillStyle = '#4a1a8a';
+    ctx.beginPath(); ctx.arc(-9, -80, 5.5, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(9, -80, 5.5, 0, 7); ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(-11, -82, 2, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(7, -82, 2, 0, 7); ctx.fill();
+    // silly grin
+    ctx.strokeStyle = '#3a1466'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(0, -58, 10, 0.1, Math.PI - 0.1); ctx.stroke();
+    // teeth
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.moveTo(-6, -54); ctx.lineTo(-3, -49); ctx.lineTo(0, -54); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(0, -54); ctx.lineTo(3, -49); ctx.lineTo(6, -54); ctx.fill();
+    ctx.restore();
+  }
+
+  /* ---------- house environment ---------- */
+  function buildHouse() {
+    spots.length = 0;
+    const pad = 14;
+    const top = H * 0.14;
+    const bottom = H * 0.72;
+    const usable = W - pad * 2;
+    const n = 6;
+    const slotW = usable / n;
+    for (let i = 0; i < n; i++) {
+      const cx = pad + slotW * i + slotW / 2;
+      const isDoor = i === 0 || i === 5;   // two doors on the ends
+      const ch = isDoor ? 1.0 : 0.8;
+      spots.push({
+        x: cx,
+        yBase: bottom,
+        yTop: bottom - H * 0.30 * ch,
+        w: Math.min(slotW * 0.72, 130),
+        h: H * 0.30 * ch,
+        isDoor: isDoor,
+        hue: [250, 180, 320, 210, 280, 160][i]
+      });
+    }
+  }
+
+  function drawHouse() {
+    // sky
+    const sky = ctx.createLinearGradient(0, 0, 0, H * 0.55);
+    sky.addColorStop(0, '#1c2f52');
+    sky.addColorStop(1, '#3a2a5e');
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, W, H * 0.55);
+
+    // twinkling stars in sky
+    for (let i = 0; i < 40; i++) {
+      const sx = (i * 97 + 13) % W;
+      const sy = (i * 41 + 7) % (H * 0.42);
+      const tw = 0.5 + 0.5 * Math.sin(time * 1.7 + i);
+      ctx.globalAlpha = 0.25 + tw * 0.5;
+      ctx.fillStyle = '#ffe9a8';
+      ctx.beginPath(); ctx.arc(sx, sy, 1.5, 0, 7); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    // moon
+    ctx.fillStyle = '#fff7d6';
+    ctx.beginPath(); ctx.arc(W * 0.86, H * 0.10, 34, 0, 7); ctx.fill();
+    ctx.fillStyle = '#e8d8b0';
+    ctx.beginPath(); ctx.arc(W * 0.86 + 8, H * 0.10 - 6, 26, 0, 7); ctx.fill();
+
+    // ground
+    const g = ctx.createLinearGradient(0, H * 0.66, 0, H);
+    g.addColorStop(0, '#3f8f5a');
+    g.addColorStop(1, '#2c6b46');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, H * 0.66, W, H * 0.34);
+
+    // little bushes
+    for (let i = 0; i < 8; i++) {
+      const bx = (i * 149 + 20) % W;
+      const by = H * 0.72 + ((i * 37) % 18);
+      ctx.fillStyle = '#5fb06e';
+      ctx.beginPath(); ctx.arc(bx, by, 14, 0, 7); ctx.fill();
+      ctx.beginPath(); ctx.arc(bx + 18, by + 4, 12, 0, 7); ctx.fill();
+    }
+
+    // house body
+    const hw = W * 0.86, hx = W * 0.07, hy = H * 0.16, hh = H * 0.52;
+    roundRect(hx, hy, hw, hh, 14);
+    ctx.fillStyle = '#6b4a8f'; ctx.fill();
+    ctx.strokeStyle = '#4a3270'; ctx.lineWidth = 5; ctx.stroke();
+
+    // roof
+    ctx.beginPath();
+    ctx.moveTo(hx - 24, hy);
+    ctx.lineTo(W * 0.5, hy - hh * 0.42);
+    ctx.lineTo(hx + hw + 24, hy);
+    ctx.closePath();
+    ctx.fillStyle = '#8a3fa0'; ctx.fill();
+    ctx.strokeStyle = '#5e2a78'; ctx.lineWidth = 5; ctx.stroke();
+    // roof trim
+    ctx.fillStyle = '#ffd94a';
+    for (let i = 0; i < 5; i++) {
+      const px = hx + 40 + (hw / 4) * i;
+      ctx.beginPath(); ctx.arc(px, hy - 8, 7, 0, 7); ctx.fill();
+    }
+
+    // windows + doors
+    spots.forEach(function (sp) {
+      const w = sp.w, h = sp.h;
+      const x = sp.x - w / 2, y = sp.yTop;
+      if (sp.isDoor) {
+        roundRect(x, y, w, h, 8);
+        ctx.fillStyle = '#5a3a2a'; ctx.fill();
+        ctx.strokeStyle = '#3a2418'; ctx.lineWidth = 5; ctx.stroke();
+        // door handle
+        ctx.fillStyle = '#ffd94a';
+        ctx.beginPath(); ctx.arc(sp.x + w * 0.22, y + h * 0.55, 5, 0, 7); ctx.fill();
+        // little door light
+        ctx.fillStyle = '#ffe9a8';
+        ctx.beginPath(); ctx.arc(sp.x, y + h * 0.18, 5, 0, 7); ctx.fill();
+      } else {
+        roundRect(x, y, w, h, 12);
+        ctx.fillStyle = '#2a4a7a'; ctx.fill();
+        ctx.strokeStyle = '#1c3058'; ctx.lineWidth = 5; ctx.stroke();
+        // window frame cross
+        ctx.strokeStyle = '#1c3058'; ctx.lineWidth = 4;
+        ctx.beginPath(); ctx.moveTo(sp.x, y + 6); ctx.lineTo(sp.x, y + h - 6); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(x + 6, sp.yTop + h * 0.5); ctx.lineTo(x + w - 6, sp.yTop + h * 0.5); ctx.stroke();
+      }
+      // window sill / flower box
+      if (!sp.isDoor) {
+        ctx.fillStyle = '#ffb02e';
+        roundRect(x - 4, y + h - 8, w + 8, 12, 4); ctx.fill();
+        for (let f = 0; f < 4; f++) {
+          ctx.fillStyle = ['#ff6b8a', '#ffd94a', '#ff8ab8', '#b8ff6b'][f];
+          ctx.beginPath(); ctx.arc(x + 8 + f * (w - 16) / 3, y + h - 4, 6, 0, 7); ctx.fill();
+        }
+      }
+    });
+
+    // chimney
+    const chx = hx + hw * 0.68;
+    roundRect(chx, hy - 70, 26, 70, 6);
+    ctx.fillStyle = '#8a3fa0'; ctx.fill();
+    ctx.strokeStyle = '#5e2a78'; ctx.lineWidth = 4; ctx.stroke();
+    // smoke puffs
+    for (let i = 0; i < 3; i++) {
+      const p = time * 0.8 + i * 0.4;
+      ctx.globalAlpha = 0.35;
+      ctx.fillStyle = '#cfd8ff';
+      ctx.beginPath(); ctx.arc(chx + 13 + Math.sin(p) * 6, hy - 70 - 14 - i * 16, 9, 0, 7); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  /* ---------- spawn logic ---------- */
+  function spawnCharacter() {
+    // pick a spot that has room (no character currently in it)
+    const free = spots.filter(function (s) { return !s.occupied; });
+    if (!free.length) return;
+    const sp = free[Math.floor(rng() * free.length)];
+    const kind = Math.floor(rng() * 3); // 0 ghost, 1 zombie, 2 monster
+    const scale = 0.9 + rng() * 0.35;
+    characters.push({
+      spot: sp,
+      kind: kind,
+      x: sp.x,
+      y: sp.yTop,
+      scale: scale,
+      t: rng() * 100,
+      life: 2.5 + rng() * 1.5,
+      dur: 0,
+      bounce: 0,
+      tapped: false,
+      appear: 0,
+      active: true
+    });
+    sp.occupied = true;
+    synthPop();
+  }
+
+  /* ---------- input (multi-touch friendly) ---------- */
+  function onDown(x, y) {
+    if (startOverlay && !startOverlay.classList.contains('hidden')) {
+      startOverlay.classList.add('hidden');
+      ensureAudio();
+      startMusic();
+      return;
+    }
+    ensureAudio();
+    if (!audioReady) startMusic();
+    // check characters from topmost (last drawn) first
+    for (let i = characters.length - 1; i >= 0; i--) {
+      const c = characters[i];
+      if (!c.active || !c.tapped) {
+        const cx = c.x, cy = c.y - 40 * c.scale;
+        const half = 46 * c.scale;
+        if (x >= cx - half && x <= cx + half && y >= cy - half && y <= cy + half) {
+          tapCharacter(c);
+          break;
+        }
+      }
+    }
+  }
+
+  function tapCharacter(c) {
+    c.tapped = true;
+    c.bounce = 0.0001;
+    synthGiggle();
+    starCount++;
+    starNumEl.textContent = starCount;
+    // star reward
+    stars.push({ x: c.x, y: c.y - 60 * c.scale, vx: (rng() - 0.5) * 30, vy: -1.6, life: 0, scale: 1.5 + rng() });
+    for (let i = 0; i < 6; i++) {
+      const a = i * Math.PI / 3;
+      sparks.push({ x: c.x, y: c.y - 40 * c.scale, vx: Math.cos(a) * 2.4, vy: Math.sin(a) * 2.4 - 1, life: 0 });
+    }
+  }
+
+  function bindInput() {
+    const opts = { passive: false, capture: true };
+    function handle(e) {
+      if (e.cancelable !== false) e.preventDefault();
+      const touches = e.touches && e.touches.length ? e.touches : (e.pointerType ? [e] : [e]);
+      for (let i = 0; i < touches.length; i++) {
+        const t = touches[i];
+        onDown(t.clientX !== undefined ? t.clientX : t.pageX, t.clientY !== undefined ? t.clientY : t.pageY);
+      }
+    }
+    canvas.addEventListener('pointerdown', handle, opts);
+    canvas.addEventListener('touchstart', handle, opts);
+    // stop native gestures on the whole document
+    document.addEventListener('touchmove', function (e) { e.preventDefault(); }, opts);
+    document.addEventListener('gesturestart', function (e) { e.preventDefault(); }, opts);
+    document.addEventListener('gesturechange', function (e) { e.preventDefault(); }, opts);
+    document.addEventListener('gestureend', function (e) { e.preventDefault(); }, opts);
+    document.addEventListener('dblclick', function (e) { e.preventDefault(); }, opts);
+    document.addEventListener('contextmenu', function (e) { e.preventDefault(); }, opts);
+    document.addEventListener('selectstart', function (e) { e.preventDefault(); }, true);
+    startOverlay.addEventListener('pointerdown', handle, opts);
+    startOverlay.addEventListener('touchstart', handle, opts);
+  }
+
+  /* ---------- update ---------- */
+  function update(dt) {
+    time += dt;
+
+    // spawn logic
+    spawnTimer -= dt;
+    if (spawnTimer <= 0 && characters.length < 4) {
+      spawnTimer = 1.0 + rng() * 1.5;
+      spawnCharacter();
+    }
+
+    // characters
+    for (let i = 0; i < characters.length; i++) {
+      const c = characters[i];
+      if (!c.active) continue;
+      c.t += dt;
+      c.dur += dt;
+      c.appear = Math.min(c.appear + dt * 8, 1);
+      if (c.bounce > 0) c.bounce += dt * 10;
+      // duck back after life seconds (or shortly after tapped bounce)
+      const lifeLimit = c.tapped ? 0.6 : c.life;
+      if (c.dur >= lifeLimit) {
+        c.active = false;
+        c.spot.occupied = false;
+        // remove after fade handled in draw via appear
+        setTimeout(function () { c.dead = true; }, 250);
+      }
+    }
+
+    // stars
+    for (let i = 0; i < stars.length; i++) {
+      const s = stars[i];
+      s.life += dt;
+      s.x += s.vx * dt;
+      s.y += s.vy * dt;
+      s.vy += 0.06 * dt * 60;
+      s.vx *= 0.98;
+      if (s.life > 1.4) stars.splice(i, 1), i--;
+    }
+    // sparks
+    for (let i = 0; i < sparks.length; i++) {
+      const s = sparks[i];
+      s.life += dt;
+      s.x += s.vx * dt;
+      s.y += s.vy * dt;
+      s.vx *= 0.94;
+      s.vy *= 0.94;
+      if (s.life > 0.6) sparks.splice(i, 1), i--;
+    }
+  }
+
+  /* ---------- render ---------- */
+  function draw() {
+    ctx.clearRect(0, 0, W, H);
+    drawHouse();
+
+    // characters (behind front of window: draw only when appeared enough)
+    characters.forEach(function (c) {
+      if (c.dead) return;
+      const alpha = Math.min(1, c.appear);
+      const rise = (1 - c.appear) * 30;
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      if (c.kind === 0) drawGhost(c.x, c.y - 40 * c.scale + rise, c.scale, c.t, c.bounce);
+      else if (c.kind === 1) drawZombie(c.x, c.y - 40 * c.scale + rise, c.scale, c.t, c.bounce);
+      else drawMonster(c.x, c.y - 40 * c.scale + rise, c.scale, c.t, c.bounce);
+      ctx.restore();
+    });
+
+    // sparks
+    sparks.forEach(function (s) {
+      ctx.globalAlpha = Math.max(0, 1 - s.life / 0.6);
+      ctx.fillStyle = '#fff';
+      ctx.beginPath(); ctx.arc(s.x, s.y, 3, 0, 7); ctx.fill();
+      ctx.globalAlpha = 1;
+    });
+
+    // star rewards
+    stars.forEach(function (s) {
+      star(s.x, s.y, s.scale * 6, s.life * 6);
+    });
+  }
+
+  /* ---------- main loop ---------- */
+  let last = performance.now();
+  function loop(now) {
+    const dt = Math.min(0.05, (now - last) / 1000);
+    last = now;
+    update(dt);
+    draw();
+    requestAnimationFrame(loop);
+  }
+
+  // cleanup dead chars occasionally
+  setInterval(function () {
+    for (let i = characters.length - 1; i >= 0; i--) {
+      if (characters[i].dead) characters.splice(i, 1);
+    }
+  }, 600);
+
+  window.addEventListener('resize', resize);
+  window.addEventListener('orientationchange', function () { setTimeout(resize, 120); });
+
+  resize();
+  bindInput();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
