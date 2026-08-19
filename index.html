@@ -146,10 +146,12 @@
   const characters = []; // active peeking characters
   const stars = [];      // floating star particles
   const sparks = [];     // little sparkle bursts
+  const confetti = [];   // celebration confetti
   let starCount = 0;
   let spawnTimer = 0;
   let frame = 0;
   let time = 0;
+  let celebrate = 0;
 
   const rng = (() => {
     let s = 42;
@@ -200,6 +202,24 @@
     o.connect(g); g.connect(c.destination);
   }
 
+  function synthFanfare() {
+    if (!audioCtx) return;
+    const c = audioCtx, t = c.currentTime;
+    const notes = [523, 659, 784, 1046, 784, 1046];
+    notes.forEach(function (f, i) {
+      const o = c.createOscillator(), g = c.createGain();
+      o.type = 'triangle';
+      o.frequency.value = f;
+      const start = t + i * 0.11;
+      o.start(start);
+      g.gain.setValueAtTime(0.0001, start);
+      g.gain.exponentialRampToValueAtTime(0.22, start + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, start + 0.1);
+      o.stop(start + 0.12);
+      o.connect(g); g.connect(c.destination);
+    });
+  }
+
   function synthTune() {
     if (!audioCtx) return;
     const c = audioCtx, t = c.currentTime;
@@ -236,10 +256,15 @@
     ctx.closePath();
   }
 
-  function star(x, y, s, rot) {
+  function star(x, y, s, rot, color) {
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(rot);
+    // glow
+    ctx.globalAlpha = 0.35;
+    ctx.fillStyle = color || '#ffd94a';
+    ctx.beginPath(); ctx.arc(0, 0, s * 1.5, 0, 7); ctx.fill();
+    ctx.globalAlpha = 1;
     ctx.beginPath();
     for (let i = 0; i < 10; i++) {
       const r = i % 2 === 0 ? s : s * 0.42;
@@ -248,42 +273,57 @@
       i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
     }
     ctx.closePath();
-    ctx.fillStyle = '#fff';
+    // gold outer
+    ctx.fillStyle = color || '#ffd94a';
     ctx.fill();
-    ctx.fillStyle = '#ffd94a';
-    ctx.globalAlpha = 0.85;
-    ctx.fill();
-    ctx.globalAlpha = 1;
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+    // lighter inner shine
+    ctx.save();
+    ctx.scale(0.5, 0.5);
+    ctx.fillStyle = '#fff8d8'; ctx.fill();
+    ctx.restore();
     ctx.restore();
   }
 
   /* ---------- characters (procedural) ---------- */
+  // soft drop shadow under a character
+  function shadow(x, y, s) {
+    ctx.fillStyle = 'rgba(0,0,20,0.28)';
+    ctx.beginPath(); ctx.ellipse(x, y + 6, 30 * s, 8 * s, 0, 0, 7); ctx.fill();
+  }
+
   function drawGhost(x, y, s, t, bounce) {
     const bob = Math.sin(t * 3) * 4 * s;
+    const squash = bounce ? 1 + Math.sin(bounce * 12) * 0.18 : 1;
     ctx.save();
-    ctx.translate(x, y + bob - (bounce ? Math.sin(bounce * 12) * 12 * s : 0));
-    ctx.scale(s, s);
-    // body
+    ctx.translate(x, y + bob - (bounce ? Math.sin(bounce * 12) * 14 * s : 0));
+    ctx.scale(s * (1 / squash), s * squash);
+    shadow(0, 2, 1);
+    // body (chubbier, rounder)
     ctx.beginPath();
-    ctx.moveTo(0, -78);
-    ctx.quadraticCurveTo(22, -52, 22, 0);
-    for (let i = 0; i < 6; i++) ctx.quadraticCurveTo(22, 28 + i * 14, 14 + (i % 2 ? 6 : -6), 26 + i * 14);
-    ctx.quadraticCurveTo(-22, 88, -22, 0);
-    ctx.quadraticCurveTo(-22, -52, 0, -78);
+    ctx.moveTo(0, -84);
+    ctx.quadraticCurveTo(26, -56, 26, 0);
+    for (let i = 0; i < 5; i++) ctx.quadraticCurveTo(26, 26 + i * 13, 16 + (i % 2 ? 8 : -8), 24 + i * 13);
+    ctx.quadraticCurveTo(-26, 96, -26, 0);
+    ctx.quadraticCurveTo(-26, -56, 0, -84);
     ctx.closePath();
     ctx.fillStyle = '#ffffff';
     ctx.fill();
-    ctx.strokeStyle = '#b8c4ff'; ctx.lineWidth = 3; ctx.stroke();
-    // eyes
+    ctx.strokeStyle = '#b8c4ff'; ctx.lineWidth = 3.5; ctx.stroke();
+    // rosy cheeks
+    ctx.fillStyle = '#ffd9e6';
+    ctx.beginPath(); ctx.arc(-14, -26, 6, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(14, -26, 6, 0, 7); ctx.fill();
+    // eyes (bigger & softer)
     ctx.fillStyle = '#3a4fae';
-    ctx.beginPath(); ctx.arc(-9, -38, 7, 0, 7); ctx.fill();
-    ctx.beginPath(); ctx.arc(9, -38, 7, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(-10, -44, 8, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(10, -44, 8, 0, 7); ctx.fill();
     ctx.fillStyle = '#fff';
-    ctx.beginPath(); ctx.arc(-9 - 2, -40, 2.5, 0, 7); ctx.fill();
-    ctx.beginPath(); ctx.arc(9 - 2, -40, 2.5, 0, 7); ctx.fill();
-    // smile
-    ctx.strokeStyle = '#3a4fae'; ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.arc(0, -18, 8, 0.2, Math.PI - 0.2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(-12, -46, 3, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(8, -46, 3, 0, 7); ctx.fill();
+    // happy smile
+    ctx.strokeStyle = '#3a4fae'; ctx.lineWidth = 3.5;
+    ctx.beginPath(); ctx.arc(0, -16, 10, 0.2, Math.PI - 0.2); ctx.stroke();
     ctx.restore();
   }
 
@@ -414,6 +454,15 @@
     ctx.fillStyle = g;
     ctx.fillRect(0, H * 0.66, W, H * 0.34);
 
+    // gravel path from door to bottom
+    ctx.fillStyle = '#d9c9a0';
+    ctx.beginPath();
+    ctx.moveTo(W * 0.5 - 34, H * 0.72);
+    ctx.quadraticCurveTo(W * 0.5, H * 0.96, W * 0.5 - 24, H);
+    ctx.lineTo(W * 0.5 + 24, H);
+    ctx.quadraticCurveTo(W * 0.5 + 4, H * 0.96, W * 0.5 + 34, H * 0.72);
+    ctx.closePath(); ctx.fill();
+
     // little bushes
     for (let i = 0; i < 8; i++) {
       const bx = (i * 149 + 20) % W;
@@ -421,6 +470,44 @@
       ctx.fillStyle = '#5fb06e';
       ctx.beginPath(); ctx.arc(bx, by, 14, 0, 7); ctx.fill();
       ctx.beginPath(); ctx.arc(bx + 18, by + 4, 12, 0, 7); ctx.fill();
+    }
+
+    // two pumpkins by the front door
+    const px = W * 0.5 - 70, py = H * 0.74;
+    ctx.fillStyle = '#ff7a2e';
+    ctx.beginPath(); ctx.arc(px, py, 13, 0, 7); ctx.fill();
+    ctx.strokeStyle = '#d95a16'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.fillStyle = '#4f8f3a';
+    ctx.beginPath(); ctx.arc(px - 2, py - 18, 4, 0, 7); ctx.fill();
+    ctx.fillStyle = '#ff7a2e';
+    ctx.beginPath(); ctx.arc(px + 42, py + 4, 11, 0, 7); ctx.fill();
+    ctx.strokeStyle = '#d95a16'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.fillStyle = '#4f8f3a';
+    ctx.beginPath(); ctx.arc(px + 40, py - 14, 4, 0, 7); ctx.fill();
+
+    // little white fence along the bottom
+    const fenceY = H * 0.82;
+    ctx.strokeStyle = '#b59a7a'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(8, fenceY); ctx.lineTo(W - 8, fenceY); ctx.stroke();
+    for (let i = 0; i < 20; i++) {
+      const fx = 14 + i * ((W - 28) / 20);
+      ctx.beginPath();
+      ctx.moveTo(fx, fenceY);
+      ctx.lineTo(fx - 4, fenceY - 20);
+      ctx.lineTo(fx + 4, fenceY - 20);
+      ctx.closePath(); ctx.fillStyle = '#c7ab8f'; ctx.fill();
+    }
+
+    // ambient fireflies floating around
+    for (let i = 0; i < 14; i++) {
+      const fx = (i * 173 + 31) % W;
+      const fy = H * 0.20 + ((i * 67) % (H * 0.42));
+      const drift = Math.sin(time * 1.2 + i * 1.7) * 12;
+      const tw = 0.5 + 0.5 * Math.sin(time * 2.4 + i * 3.1);
+      ctx.globalAlpha = 0.25 + tw * 0.5;
+      ctx.fillStyle = '#ffe9a8';
+      ctx.beginPath(); ctx.arc(fx + drift, fy + Math.cos(time * 0.9 + i) * 8, 2.4, 0, 7); ctx.fill();
+      ctx.globalAlpha = 1;
     }
 
     // house body
@@ -455,12 +542,18 @@
         // door handle
         ctx.fillStyle = '#ffd94a';
         ctx.beginPath(); ctx.arc(sp.x + w * 0.22, y + h * 0.55, 5, 0, 7); ctx.fill();
-        // little door light
+        // warm light from the door crack
         ctx.fillStyle = '#ffe9a8';
-        ctx.beginPath(); ctx.arc(sp.x, y + h * 0.18, 5, 0, 7); ctx.fill();
+        ctx.globalAlpha = 0.25 + 0.1 * Math.sin(time * 3);
+        ctx.beginPath(); ctx.arc(sp.x, y + h * 0.18, 6, 0, 7); ctx.fill();
+        ctx.globalAlpha = 1;
       } else {
         roundRect(x, y, w, h, 12);
-        ctx.fillStyle = '#2a4a7a'; ctx.fill();
+        // softly glowing window pane
+        const glow = ctx.createLinearGradient(0, y, 0, y + h);
+        glow.addColorStop(0, '#ffdf9e');
+        glow.addColorStop(1, '#ffb86b');
+        ctx.fillStyle = glow; ctx.fill();
         ctx.strokeStyle = '#1c3058'; ctx.lineWidth = 5; ctx.stroke();
         // window frame cross
         ctx.strokeStyle = '#1c3058'; ctx.lineWidth = 4;
@@ -491,6 +584,13 @@
       ctx.beginPath(); ctx.arc(chx + 13 + Math.sin(p) * 6, hy - 70 - 14 - i * 16, 9, 0, 7); ctx.fill();
     }
     ctx.globalAlpha = 1;
+
+    // soft vignette for cozy depth
+    const v = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.28, W / 2, H / 2, Math.max(W, H) * 0.62);
+    v.addColorStop(0, 'rgba(0,0,0,0)');
+    v.addColorStop(1, 'rgba(10,12,30,0.42)');
+    ctx.fillStyle = v;
+    ctx.fillRect(0, 0, W, H);
   }
 
   /* ---------- spawn logic ---------- */
@@ -513,6 +613,7 @@
       bounce: 0,
       tapped: false,
       appear: 0,
+      cue: 0,
       active: true
     });
     sp.occupied = true;
@@ -537,9 +638,13 @@
         const half = 46 * c.scale;
         if (x >= cx - half && x <= cx + half && y >= cy - half && y <= cy + half) {
           tapCharacter(c);
-          break;
+          return;
         }
       }
+    }
+    // tapped empty space: a little sparkle so the screen always responds (no frustration)
+    for (let i = 0; i < 3; i++) {
+      sparks.push({ x: x + (rng() - 0.5) * 24, y: y + (rng() - 0.5) * 24, vx: 0, vy: -0.5, life: 0 });
     }
   }
 
@@ -549,11 +654,27 @@
     synthGiggle();
     starCount++;
     starNumEl.textContent = starCount;
-    // star reward
-    stars.push({ x: c.x, y: c.y - 60 * c.scale, vx: (rng() - 0.5) * 30, vy: -1.6, life: 0, scale: 1.5 + rng() });
+    // star reward (rainbow every 5th star)
+    const isMilestone = starCount % 5 === 0;
+    stars.push({ x: c.x, y: c.y - 60 * c.scale, vx: (rng() - 0.5) * 30, vy: -1.6, life: 0, scale: 1.5 + rng(), color: isMilestone ? '#ff8ae0' : '#ffd94a' });
     for (let i = 0; i < 6; i++) {
       const a = i * Math.PI / 3;
       sparks.push({ x: c.x, y: c.y - 40 * c.scale, vx: Math.cos(a) * 2.4, vy: Math.sin(a) * 2.4 - 1, life: 0 });
+    }
+    if (isMilestone) {
+      // celebration: confetti + fanfare
+      celebrate = 1;
+      synthFanfare();
+      for (let i = 0; i < 26; i++) {
+        const a = rng() * Math.PI * 2;
+        const sp = 2 + rng() * 3.5;
+        confetti.push({
+          x: c.x, y: c.y - 40 * c.scale,
+          vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 2,
+          life: 0, rot: rng() * 6,
+          color: ['#ff8ae0', '#ffd94a', '#8ae0ff', '#8affa0', '#c9a0ff'][Math.floor(rng() * 5)]
+        });
+      }
     }
   }
 
@@ -599,6 +720,7 @@
       c.t += dt;
       c.dur += dt;
       c.appear = Math.min(c.appear + dt * 8, 1);
+      c.cue = Math.min(c.cue + dt, 1);
       if (c.bounce > 0) c.bounce += dt * 10;
       // duck back after life seconds (or shortly after tapped bounce)
       const lifeLimit = c.tapped ? 0.6 : c.life;
@@ -630,6 +752,17 @@
       s.vy *= 0.94;
       if (s.life > 0.6) sparks.splice(i, 1), i--;
     }
+    // confetti
+    for (let i = 0; i < confetti.length; i++) {
+      const s = confetti[i];
+      s.life += dt;
+      s.x += s.vx * dt;
+      s.y += s.vy * dt;
+      s.vy += 1.2 * dt;
+      s.rot += dt * 8;
+      if (s.life > 1.2) confetti.splice(i, 1), i--;
+    }
+    celebrate = Math.max(0, celebrate - dt * 2);
   }
 
   /* ---------- render ---------- */
@@ -644,6 +777,14 @@
       const rise = (1 - c.appear) * 30;
       ctx.save();
       ctx.globalAlpha = alpha;
+      // warm "come play!" glow right when they peek out
+      if (c.cue < 0.55) {
+        const g = Math.sin(c.cue * Math.PI) * 0.45;
+        ctx.globalAlpha = alpha * g;
+        ctx.fillStyle = '#ffd94a';
+        ctx.beginPath(); ctx.arc(c.x, c.y - 40 * c.scale, 46 * c.scale, 0, 7); ctx.fill();
+        ctx.globalAlpha = alpha;
+      }
       if (c.kind === 0) drawGhost(c.x, c.y - 40 * c.scale + rise, c.scale, c.t, c.bounce);
       else if (c.kind === 1) drawZombie(c.x, c.y - 40 * c.scale + rise, c.scale, c.t, c.bounce);
       else drawMonster(c.x, c.y - 40 * c.scale + rise, c.scale, c.t, c.bounce);
@@ -660,8 +801,28 @@
 
     // star rewards
     stars.forEach(function (s) {
-      star(s.x, s.y, s.scale * 6, s.life * 6);
+      star(s.x, s.y, s.scale * 6, s.life * 6, s.color);
     });
+
+    // celebration confetti
+    confetti.forEach(function (s) {
+      ctx.save();
+      ctx.translate(s.x, s.y);
+      ctx.rotate(s.rot);
+      ctx.globalAlpha = Math.max(0, 1 - s.life / 1.2);
+      ctx.fillStyle = s.color;
+      ctx.fillRect(-5, -3, 10, 6);
+      ctx.restore();
+      ctx.globalAlpha = 1;
+    });
+
+    // full-screen soft glow pulse during milestone celebration
+    if (celebrate > 0) {
+      ctx.globalAlpha = celebrate * 0.18;
+      ctx.fillStyle = '#ffd94a';
+      ctx.fillRect(0, 0, W, H);
+      ctx.globalAlpha = 1;
+    }
   }
 
   /* ---------- main loop ---------- */
