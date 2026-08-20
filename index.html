@@ -49,56 +49,60 @@
   }
   #startOverlay.hidden { opacity: 0; pointer-events: none; }
   #startOverlay h1 {
-    font-size: clamp(30px, 9vw, 64px);
+    font-size: clamp(28px, 8vw, 56px);
     margin: 0 0 6px 0;
     letter-spacing: 1px;
     text-shadow: 0 4px 0 #7b3fbf, 0 6px 18px rgba(0,0,0,.6);
   }
   #startOverlay .ghost-emoji { font-size: clamp(52px, 15vw, 96px); margin: 10px 0; animation: bob 1.6s ease-in-out infinite; }
   #startOverlay .tapBtn {
-    margin-top: 22px;
-    font-size: clamp(28px, 8vw, 52px);
+    margin-top: 20px;
+    font-size: clamp(26px, 8vw, 48px);
     font-weight: bold;
     color: #ffd94a;
     text-shadow: 0 3px 0 #7b3fbf;
     background: rgba(255,255,255,.12);
     border: 4px solid #ffd94a;
     border-radius: 60px;
-    padding: 16px 38px;
+    padding: 14px 34px;
     animation: pulse 1.4s ease-in-out infinite;
     pointer-events: none;
   }
   #startOverlay .hint {
-    margin-top: 26px;
-    font-size: clamp(15px, 4vw, 24px);
+    margin-top: 24px;
+    font-size: clamp(14px, 4vw, 22px);
     color: #cfd8ff;
     max-width: 90vw;
     line-height: 1.5;
   }
   @keyframes bob { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-14px)} }
   @keyframes pulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.08)} }
-  #starCounter {
+
+  /* navigation arrow buttons (big preschool touch targets) */
+  .navBtn {
     position: fixed;
-    top: calc(env(safe-area-inset-top) + 10px);
-    left: 50%;
-    transform: translateX(-50%);
-    z-index: 50;
-    background: linear-gradient(180deg, #ffd94a, #ffb02e);
-    border-radius: 40px;
-    padding: 8px 24px;
-    font-size: clamp(24px, 7vw, 44px);
-    font-weight: 900;
-    color: #7b3fbf;
-    box-shadow: 0 4px 0 #7b3fbf, 0 6px 16px rgba(0,0,0,.5);
-    border: 3px solid #fff;
-    display: flex; align-items: center; gap: 10px;
-    white-space: nowrap;
+    bottom: calc(env(safe-area-inset-bottom) + 22px);
+    width: clamp(88px, 20vw, 150px);
+    height: clamp(88px, 20vw, 150px);
+    border-radius: 50%;
+    background: radial-gradient(circle at 40% 30%, #7b6bb8, #4a3a8f);
+    border: 5px solid #ffd94a;
+    box-shadow: 0 6px 0 #2a1a6e, 0 10px 22px rgba(0,0,0,.45);
+    display: flex; align-items: center; justify-content: center;
+    font-size: clamp(40px, 10vw, 64px);
+    color: #fff;
+    text-shadow: 0 3px 0 #2a1a6e;
+    z-index: 60;
+    touch-action: none;
     -webkit-user-select: none;
     -webkit-touch-callout: none;
-    touch-action: none;
-    pointer-events: none;
+    -webkit-tap-highlight-color: transparent;
+    transition: transform .15s ease;
   }
-  #starCounter .star { font-size: 1.2em; }
+  .navBtn.pressed { transform: scale(0.9); }
+  #leftBtn { left: calc(env(safe-area-inset-left) + 16px); }
+  #rightBtn { right: calc(env(safe-area-inset-right) + 16px); }
+  .navBtn .arrow { pointer-events: none; }
 </style>
 </head>
 <body>
@@ -107,13 +111,13 @@
 
 <div id="startOverlay">
   <div class="ghost-emoji">👻</div>
-  <h1>Peek-a-Boo</h1>
-  <h1 style="font-size:clamp(34px,10vw,72px); margin-top:-18px;">Haunted House</h1>
+  <h1>Peek-a-Boo Haunted House</h1>
   <div class="tapBtn">TAP TO PLAY!</div>
-  <div class="hint">Tap the friendly ghosts, silly monsters and goofy zombies hiding in the house. They love to play peek-a-boo!</div>
+  <div class="hint">Tap the friends hiding in the windows and doors to earn stars. Fill the lamp at the top to light up the whole house! Use the arrow buttons to walk to other rooms.</div>
 </div>
 
-<div id="starCounter"><span class="star">⭐</span><span id="starNum">0</span></div>
+<button id="leftBtn" class="navBtn" aria-label="go left"><span class="arrow">◀</span></button>
+<button id="rightBtn" class="navBtn" aria-label="go right"><span class="arrow">▶</span></button>
 
 <script>
 "use strict";
@@ -122,7 +126,8 @@
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d');
   const startOverlay = document.getElementById('startOverlay');
-  const starNumEl = document.getElementById('starNum');
+  const leftBtn = document.getElementById('leftBtn');
+  const rightBtn = document.getElementById('rightBtn');
 
   let W = 0, H = 0, dpr = 1;
   let audioCtx = null, audioReady = false;
@@ -138,20 +143,27 @@
     canvas.style.width = W + 'px';
     canvas.style.height = H + 'px';
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    buildHouse();
+    buildRoom();
   }
 
   /* ---------- game state ---------- */
-  const spots = [];      // windows/doors with spawn slots
   const characters = []; // active peeking characters
   const stars = [];      // floating star particles
   const sparks = [];     // little sparkle bursts
   const confetti = [];   // celebration confetti
+
+  let currentRoom = 0;
+  let roomSpots = [];    // pixel positions for current room
   let starCount = 0;
-  let spawnTimer = 0;
-  let frame = 0;
-  let time = 0;
+  let starGoal = 10;
+  let houseLit = false;
+  let litTimer = 0;
   let celebrate = 0;
+  let spawnTimer = 0;
+  let time = 0;
+
+  // room switching fade: 0=none, 1=fading to dark, 2=fading in new room
+  let fadeState = 0, fadeT = 0, targetRoom = 0;
 
   const rng = (() => {
     let s = 42;
@@ -169,21 +181,24 @@
     } catch (e) { audioReady = false; }
   }
 
+  function note(freq, t, dur, type, vol) {
+    const c = audioCtx;
+    const o = c.createOscillator(), g = c.createGain();
+    o.type = type || 'sine';
+    o.frequency.value = freq;
+    o.start(t);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur * 0.85);
+    o.stop(t + dur);
+    o.connect(g); g.connect(c.destination);
+  }
+
   function synthGiggle() {
     if (!audioCtx) return;
     const c = audioCtx, t = c.currentTime;
-    const notes = [880, 990, 660, 740];
-    notes.forEach(function (f, i) {
-      const o = c.createOscillator(), g = c.createGain();
-      o.type = 'triangle';
-      o.frequency.value = f;
-      const start = t + i * 0.14;
-      o.start(start);
-      g.gain.setValueAtTime(0.0001, start);
-      g.gain.exponentialRampToValueAtTime(0.25, start + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.0001, start + 0.12);
-      o.stop(start + 0.16);
-      o.connect(g); g.connect(c.destination);
+    [880, 990, 660, 740].forEach(function (f, i) {
+      note(f, t + i * 0.14, 0.16, 'triangle', 0.25);
     });
   }
 
@@ -202,39 +217,34 @@
     o.connect(g); g.connect(c.destination);
   }
 
+  function synthWhoosh() {
+    if (!audioCtx) return;
+    const c = audioCtx, t = c.currentTime;
+    const o = c.createOscillator(), g = c.createGain();
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(220, t);
+    o.frequency.exponentialRampToValueAtTime(520, t + 0.18);
+    o.start(t);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.18, t + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
+    o.stop(t + 0.22);
+    o.connect(g); g.connect(c.destination);
+  }
+
   function synthFanfare() {
     if (!audioCtx) return;
     const c = audioCtx, t = c.currentTime;
-    const notes = [523, 659, 784, 1046, 784, 1046];
-    notes.forEach(function (f, i) {
-      const o = c.createOscillator(), g = c.createGain();
-      o.type = 'triangle';
-      o.frequency.value = f;
-      const start = t + i * 0.11;
-      o.start(start);
-      g.gain.setValueAtTime(0.0001, start);
-      g.gain.exponentialRampToValueAtTime(0.22, start + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.0001, start + 0.1);
-      o.stop(start + 0.12);
-      o.connect(g); g.connect(c.destination);
+    [523, 659, 784, 1046, 784, 1046].forEach(function (f, i) {
+      note(f, t + i * 0.11, 0.12, 'triangle', 0.22);
     });
   }
 
   function synthTune() {
     if (!audioCtx) return;
     const c = audioCtx, t = c.currentTime;
-    const melody = [523, 659, 784, 659, 523, 587, 659, 523];
-    melody.forEach(function (f, i) {
-      const o = c.createOscillator(), g = c.createGain();
-      o.type = 'sine';
-      o.frequency.value = f;
-      const start = t + i * 0.5;
-      o.start(start);
-      g.gain.setValueAtTime(0.0001, start);
-      g.gain.exponentialRampToValueAtTime(0.08, start + 0.05);
-      g.gain.exponentialRampToValueAtTime(0.0001, start + 0.4);
-      o.stop(start + 0.5);
-      o.connect(g); g.connect(c.destination);
+    [523, 659, 784, 659, 523, 587, 659, 523].forEach(function (f, i) {
+      note(f, t + i * 0.5, 0.5, 'sine', 0.06);
     });
   }
 
@@ -244,7 +254,7 @@
     bgMusicTimer = setInterval(function () { if (audioCtx) synthTune(); }, 4000);
   }
 
-  /* ---------- procedural drawing helpers ---------- */
+  /* ---------- drawing helpers ---------- */
   function roundRect(x, y, w, h, r) {
     r = Math.min(r, w / 2, h / 2);
     ctx.beginPath();
@@ -256,11 +266,10 @@
     ctx.closePath();
   }
 
-  function star(x, y, s, rot, color) {
+  function starShape(x, y, s, rot, color) {
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(rot);
-    // glow
     ctx.globalAlpha = 0.35;
     ctx.fillStyle = color || '#ffd94a';
     ctx.beginPath(); ctx.arc(0, 0, s * 1.5, 0, 7); ctx.fill();
@@ -273,11 +282,9 @@
       i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
     }
     ctx.closePath();
-    // gold outer
     ctx.fillStyle = color || '#ffd94a';
     ctx.fill();
     ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
-    // lighter inner shine
     ctx.save();
     ctx.scale(0.5, 0.5);
     ctx.fillStyle = '#fff8d8'; ctx.fill();
@@ -285,13 +292,12 @@
     ctx.restore();
   }
 
-  /* ---------- characters (procedural) ---------- */
-  // soft drop shadow under a character
   function shadow(x, y, s) {
     ctx.fillStyle = 'rgba(0,0,20,0.28)';
     ctx.beginPath(); ctx.ellipse(x, y + 6, 30 * s, 8 * s, 0, 0, 7); ctx.fill();
   }
 
+  /* ---------- characters (procedural) ---------- */
   function drawGhost(x, y, s, t, bounce) {
     const bob = Math.sin(t * 3) * 4 * s;
     const squash = bounce ? 1 + Math.sin(bounce * 12) * 0.18 : 1;
@@ -299,7 +305,6 @@
     ctx.translate(x, y + bob - (bounce ? Math.sin(bounce * 12) * 14 * s : 0));
     ctx.scale(s * (1 / squash), s * squash);
     shadow(0, 2, 1);
-    // body (chubbier, rounder)
     ctx.beginPath();
     ctx.moveTo(0, -84);
     ctx.quadraticCurveTo(26, -56, 26, 0);
@@ -310,18 +315,15 @@
     ctx.fillStyle = '#ffffff';
     ctx.fill();
     ctx.strokeStyle = '#b8c4ff'; ctx.lineWidth = 3.5; ctx.stroke();
-    // rosy cheeks
     ctx.fillStyle = '#ffd9e6';
     ctx.beginPath(); ctx.arc(-14, -26, 6, 0, 7); ctx.fill();
     ctx.beginPath(); ctx.arc(14, -26, 6, 0, 7); ctx.fill();
-    // eyes (bigger & softer)
     ctx.fillStyle = '#3a4fae';
     ctx.beginPath(); ctx.arc(-10, -44, 8, 0, 7); ctx.fill();
     ctx.beginPath(); ctx.arc(10, -44, 8, 0, 7); ctx.fill();
     ctx.fillStyle = '#fff';
     ctx.beginPath(); ctx.arc(-12, -46, 3, 0, 7); ctx.fill();
     ctx.beginPath(); ctx.arc(8, -46, 3, 0, 7); ctx.fill();
-    // happy smile
     ctx.strokeStyle = '#3a4fae'; ctx.lineWidth = 3.5;
     ctx.beginPath(); ctx.arc(0, -16, 10, 0.2, Math.PI - 0.2); ctx.stroke();
     ctx.restore();
@@ -329,210 +331,151 @@
 
   function drawZombie(x, y, s, t, bounce) {
     const sway = Math.sin(t * 2.2) * 3 * s;
+    const squash = bounce ? 1 + Math.sin(bounce * 10) * 0.16 : 1;
     ctx.save();
-    ctx.translate(x + sway, y - (bounce ? Math.sin(bounce * 10) * 12 * s : 0));
-    ctx.scale(s, s);
-    // body
-    roundRect(-24, -62, 48, 62, 14);
+    ctx.translate(x + sway, y - (bounce ? Math.sin(bounce * 10) * 14 * s : 0));
+    ctx.scale(s * (1 / squash), s * squash);
+    shadow(0, 2, 1);
+    roundRect(-26, -62, 52, 62, 16);
     ctx.fillStyle = '#8fd47a'; ctx.fill();
-    ctx.strokeStyle = '#4f8f3a'; ctx.lineWidth = 3; ctx.stroke();
-    // patch
+    ctx.strokeStyle = '#4f8f3a'; ctx.lineWidth = 3.5; ctx.stroke();
     roundRect(-14, -20, 16, 14, 4); ctx.fillStyle = '#6fb85a'; ctx.fill();
-    // head
-    ctx.beginPath(); ctx.arc(0, -76, 24, 0, 7); ctx.fillStyle = '#9be08a'; ctx.fill(); ctx.strokeStyle = '#4f8f3a'; ctx.stroke();
-    // eyes (goofy)
+    ctx.strokeStyle = '#3f7a2f'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(-13,-19); ctx.lineTo(-9,-17); ctx.moveTo(-9,-17); ctx.lineTo(-5,-19); ctx.stroke();
+    ctx.beginPath(); ctx.arc(0, -82, 28, 0, 7); ctx.fillStyle = '#9be08a'; ctx.fill(); ctx.strokeStyle = '#4f8f3a'; ctx.lineWidth = 3.5; ctx.stroke();
     ctx.fillStyle = '#fff';
-    ctx.beginPath(); ctx.arc(-9, -80, 9, 0, 7); ctx.fill();
-    ctx.beginPath(); ctx.arc(9, -80, 9, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(-10, -86, 10, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(10, -86, 10, 0, 7); ctx.fill();
     ctx.fillStyle = '#1a4a1a';
-    ctx.beginPath(); ctx.arc(-9, -80, 5, 0, 7); ctx.fill();
-    ctx.beginPath(); ctx.arc(9, -80, 5, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(-10, -86, 6, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(10, -86, 6, 0, 7); ctx.fill();
     ctx.fillStyle = '#fff';
-    ctx.beginPath(); ctx.arc(-11, -82, 2, 0, 7); ctx.fill();
-    ctx.beginPath(); ctx.arc(7, -82, 2, 0, 7); ctx.fill();
-    // crooked mouth
-    ctx.strokeStyle = '#2e5a2e'; ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.moveTo(-8, -56); ctx.lineTo(2, -62); ctx.lineTo(10, -58); ctx.stroke();
-    // little green hair tuft
+    ctx.beginPath(); ctx.arc(-12, -88, 2.5, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(8, -88, 2.5, 0, 7); ctx.fill();
+    ctx.fillStyle = '#d4ffd0';
+    ctx.beginPath(); ctx.arc(-15, -66, 5, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(15, -66, 5, 0, 7); ctx.fill();
+    ctx.strokeStyle = '#2e5a2e'; ctx.lineWidth = 3.5;
+    ctx.beginPath(); ctx.moveTo(-8, -60); ctx.lineTo(2, -66); ctx.lineTo(10, -62); ctx.stroke();
     ctx.fillStyle = '#4f8f3a';
-    ctx.beginPath(); ctx.arc(0, -98, 8, Math.PI, 0); ctx.fill();
+    ctx.beginPath(); ctx.arc(0, -106, 10, Math.PI, 0); ctx.fill();
     ctx.restore();
   }
 
   function drawMonster(x, y, s, t, bounce) {
     const wig = Math.sin(t * 2.6) * 3 * s;
+    const squash = bounce ? 1 + Math.sin(bounce * 11) * 0.16 : 1;
     ctx.save();
-    ctx.translate(x + wig, y - (bounce ? Math.sin(bounce * 11) * 12 * s : 0));
-    ctx.scale(s, s);
-    // body
-    roundRect(-26, -58, 52, 58, 16);
+    ctx.translate(x + wig, y - (bounce ? Math.sin(bounce * 11) * 14 * s : 0));
+    ctx.scale(s * (1 / squash), s * squash);
+    shadow(0, 2, 1);
+    roundRect(-28, -58, 56, 58, 18);
     ctx.fillStyle = '#c77bff'; ctx.fill();
-    ctx.strokeStyle = '#9b4fd6'; ctx.lineWidth = 3; ctx.stroke();
-    // belly spots
+    ctx.strokeStyle = '#9b4fd6'; ctx.lineWidth = 3.5; ctx.stroke();
     ctx.fillStyle = '#e0b8ff';
     ctx.beginPath(); ctx.arc(-8, -30, 6, 0, 7); ctx.fill();
     ctx.beginPath(); ctx.arc(10, -40, 5, 0, 7); ctx.fill();
-    // head with horns
-    ctx.beginPath(); ctx.arc(0, -78, 22, 0, 7); ctx.fillStyle = '#c77bff'; ctx.fill(); ctx.strokeStyle = '#9b4fd6'; ctx.stroke();
+    ctx.beginPath(); ctx.arc(0, -84, 26, 0, 7); ctx.fillStyle = '#c77bff'; ctx.fill(); ctx.strokeStyle = '#9b4fd6'; ctx.lineWidth = 3.5; ctx.stroke();
     ctx.fillStyle = '#9b4fd6';
-    ctx.beginPath(); ctx.moveTo(-14, -96); ctx.lineTo(-10, -110); ctx.lineTo(-4, -98); ctx.fill();
-    ctx.beginPath(); ctx.moveTo(4, -98); ctx.lineTo(10, -110); ctx.lineTo(14, -96); ctx.fill();
-    // big eyes
+    ctx.beginPath(); ctx.moveTo(-15, -104); ctx.lineTo(-11, -118); ctx.lineTo(-4, -106); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(4, -106); ctx.lineTo(11, -118); ctx.lineTo(15, -104); ctx.fill();
     ctx.fillStyle = '#fff';
-    ctx.beginPath(); ctx.arc(-9, -80, 9, 0, 7); ctx.fill();
-    ctx.beginPath(); ctx.arc(9, -80, 9, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(-10, -86, 11, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(10, -86, 11, 0, 7); ctx.fill();
     ctx.fillStyle = '#4a1a8a';
-    ctx.beginPath(); ctx.arc(-9, -80, 5.5, 0, 7); ctx.fill();
-    ctx.beginPath(); ctx.arc(9, -80, 5.5, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(-10, -86, 6.5, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(10, -86, 6.5, 0, 7); ctx.fill();
     ctx.fillStyle = '#fff';
-    ctx.beginPath(); ctx.arc(-11, -82, 2, 0, 7); ctx.fill();
-    ctx.beginPath(); ctx.arc(7, -82, 2, 0, 7); ctx.fill();
-    // silly grin
-    ctx.strokeStyle = '#3a1466'; ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.arc(0, -58, 10, 0.1, Math.PI - 0.1); ctx.stroke();
-    // teeth
+    ctx.beginPath(); ctx.arc(-12, -88, 2.5, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(8, -88, 2.5, 0, 7); ctx.fill();
+    ctx.fillStyle = '#e8d0ff';
+    ctx.beginPath(); ctx.arc(-16, -66, 5, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(16, -66, 5, 0, 7); ctx.fill();
+    ctx.strokeStyle = '#3a1466'; ctx.lineWidth = 3.5;
+    ctx.beginPath(); ctx.arc(0, -60, 12, 0.1, Math.PI - 0.1); ctx.stroke();
     ctx.fillStyle = '#fff';
-    ctx.beginPath(); ctx.moveTo(-6, -54); ctx.lineTo(-3, -49); ctx.lineTo(0, -54); ctx.fill();
-    ctx.beginPath(); ctx.moveTo(0, -54); ctx.lineTo(3, -49); ctx.lineTo(6, -54); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(-7, -55); ctx.lineTo(-3.5, -50); ctx.lineTo(0, -55); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(0, -55); ctx.lineTo(3.5, -50); ctx.lineTo(7, -55); ctx.fill();
     ctx.restore();
   }
 
-  /* ---------- house environment ---------- */
-  function buildHouse() {
-    spots.length = 0;
-    const pad = 14;
-    const top = H * 0.14;
-    const bottom = H * 0.72;
-    const usable = W - pad * 2;
-    const n = 6;
-    const slotW = usable / n;
-    for (let i = 0; i < n; i++) {
-      const cx = pad + slotW * i + slotW / 2;
-      const isDoor = i === 0 || i === 5;   // two doors on the ends
-      const ch = isDoor ? 1.0 : 0.8;
-      spots.push({
-        x: cx,
-        yBase: bottom,
-        yTop: bottom - H * 0.30 * ch,
-        w: Math.min(slotW * 0.72, 130),
-        h: H * 0.30 * ch,
-        isDoor: isDoor,
-        hue: [250, 180, 320, 210, 280, 160][i]
-      });
-    }
+  /* ---------- rooms ---------- */
+  // spots: x/yTop/h as fractions of W/H. isDoor true = a door, false = a window.
+  const ROOMS = [
+    { emoji: '🛋️', wall1: '#5a3a8f', wall2: '#6b4a9f', trim: '#3a2a6e',
+      spots: [
+        { x: 0.20, yTop: 0.18, h: 0.30, isDoor: false },
+        { x: 0.80, yTop: 0.18, h: 0.30, isDoor: false },
+        { x: 0.50, yTop: 0.52, h: 0.38, isDoor: true }
+      ] },
+    { emoji: '🍳', wall1: '#5a7a3a', wall2: '#6b8a4a', trim: '#3a4a22',
+      spots: [
+        { x: 0.50, yTop: 0.18, h: 0.28, isDoor: false },
+        { x: 0.25, yTop: 0.50, h: 0.34, isDoor: true },
+        { x: 0.75, yTop: 0.50, h: 0.34, isDoor: true }
+      ] },
+    { emoji: '🛏️', wall1: '#3a5a8f', wall2: '#4a6b9f', trim: '#263a66',
+      spots: [
+        { x: 0.50, yTop: 0.20, h: 0.28, isDoor: false },
+        { x: 0.20, yTop: 0.50, h: 0.32, isDoor: true },
+        { x: 0.80, yTop: 0.50, h: 0.32, isDoor: true }
+      ] },
+    { emoji: '🏚️', wall1: '#8a5a2a', wall2: '#9a6a3a', trim: '#5a3a1a',
+      spots: [
+        { x: 0.50, yTop: 0.22, h: 0.26, isDoor: false },  // round window
+        { x: 0.30, yTop: 0.55, h: 0.30, isDoor: true },   // trunk
+        { x: 0.70, yTop: 0.55, h: 0.30, isDoor: true }
+      ] },
+    { emoji: '🕳️', wall1: '#2a4a5a', wall2: '#3a5a6a', trim: '#1a3038',
+      spots: [
+        { x: 0.22, yTop: 0.22, h: 0.24, isDoor: false },
+        { x: 0.78, yTop: 0.22, h: 0.24, isDoor: false },
+        { x: 0.50, yTop: 0.50, h: 0.40, isDoor: true }    // stone arch door
+      ] }
+  ];
+
+  function buildRoom() {
+    roomSpots = [];
+    const r = ROOMS[currentRoom];
+    r.spots.forEach(function (sp) {
+      const w = Math.min(W * 0.26, 120);
+      const h = H * sp.h;
+      const x = W * sp.x;
+      const yTop = H * sp.yTop;
+      roomSpots.push({ x: x, yTop: yTop, w: w, h: h, isDoor: sp.isDoor, occupied: false });
+    });
+    // clear characters from the old room when moving
+    characters.forEach(function (c) { c.dead = true; });
+    for (let i = 0; i < roomSpots.length; i++) roomSpots[i].occupied = false;
   }
 
-  function drawHouse() {
-    // sky
-    const sky = ctx.createLinearGradient(0, 0, 0, H * 0.55);
-    sky.addColorStop(0, '#1c2f52');
-    sky.addColorStop(1, '#3a2a5e');
-    ctx.fillStyle = sky;
-    ctx.fillRect(0, 0, W, H * 0.55);
+  /* ---------- room environment ---------- */
+  function drawRoom() {
+    const r = ROOMS[currentRoom];
 
-    // twinkling stars in sky
-    for (let i = 0; i < 40; i++) {
-      const sx = (i * 97 + 13) % W;
-      const sy = (i * 41 + 7) % (H * 0.42);
-      const tw = 0.5 + 0.5 * Math.sin(time * 1.7 + i);
-      ctx.globalAlpha = 0.25 + tw * 0.5;
-      ctx.fillStyle = '#ffe9a8';
-      ctx.beginPath(); ctx.arc(sx, sy, 1.5, 0, 7); ctx.fill();
-    }
-    ctx.globalAlpha = 1;
-
-    // moon
-    ctx.fillStyle = '#fff7d6';
-    ctx.beginPath(); ctx.arc(W * 0.86, H * 0.10, 34, 0, 7); ctx.fill();
-    ctx.fillStyle = '#e8d8b0';
-    ctx.beginPath(); ctx.arc(W * 0.86 + 8, H * 0.10 - 6, 26, 0, 7); ctx.fill();
-
-    // ground
-    const g = ctx.createLinearGradient(0, H * 0.66, 0, H);
-    g.addColorStop(0, '#3f8f5a');
-    g.addColorStop(1, '#2c6b46');
+    // wall gradient
+    const g = ctx.createLinearGradient(0, 0, 0, H * 0.78);
+    g.addColorStop(0, r.wall1);
+    g.addColorStop(1, r.wall2);
     ctx.fillStyle = g;
-    ctx.fillRect(0, H * 0.66, W, H * 0.34);
+    ctx.fillRect(0, 0, W, H * 0.78);
 
-    // gravel path from door to bottom
-    ctx.fillStyle = '#d9c9a0';
-    ctx.beginPath();
-    ctx.moveTo(W * 0.5 - 34, H * 0.72);
-    ctx.quadraticCurveTo(W * 0.5, H * 0.96, W * 0.5 - 24, H);
-    ctx.lineTo(W * 0.5 + 24, H);
-    ctx.quadraticCurveTo(W * 0.5 + 4, H * 0.96, W * 0.5 + 34, H * 0.72);
-    ctx.closePath(); ctx.fill();
+    // floor
+    const f = ctx.createLinearGradient(0, H * 0.78, 0, H);
+    f.addColorStop(0, '#4a3624');
+    f.addColorStop(1, '#332417');
+    ctx.fillStyle = f;
+    ctx.fillRect(0, H * 0.78, W, H * 0.22);
 
-    // little bushes
-    for (let i = 0; i < 8; i++) {
-      const bx = (i * 149 + 20) % W;
-      const by = H * 0.72 + ((i * 37) % 18);
-      ctx.fillStyle = '#5fb06e';
-      ctx.beginPath(); ctx.arc(bx, by, 14, 0, 7); ctx.fill();
-      ctx.beginPath(); ctx.arc(bx + 18, by + 4, 12, 0, 7); ctx.fill();
-    }
+    // baseboard
+    ctx.fillStyle = r.trim;
+    ctx.fillRect(0, H * 0.77, W, H * 0.03);
 
-    // two pumpkins by the front door
-    const px = W * 0.5 - 70, py = H * 0.74;
-    ctx.fillStyle = '#ff7a2e';
-    ctx.beginPath(); ctx.arc(px, py, 13, 0, 7); ctx.fill();
-    ctx.strokeStyle = '#d95a16'; ctx.lineWidth = 2; ctx.stroke();
-    ctx.fillStyle = '#4f8f3a';
-    ctx.beginPath(); ctx.arc(px - 2, py - 18, 4, 0, 7); ctx.fill();
-    ctx.fillStyle = '#ff7a2e';
-    ctx.beginPath(); ctx.arc(px + 42, py + 4, 11, 0, 7); ctx.fill();
-    ctx.strokeStyle = '#d95a16'; ctx.lineWidth = 2; ctx.stroke();
-    ctx.fillStyle = '#4f8f3a';
-    ctx.beginPath(); ctx.arc(px + 40, py - 14, 4, 0, 7); ctx.fill();
-
-    // little white fence along the bottom
-    const fenceY = H * 0.82;
-    ctx.strokeStyle = '#b59a7a'; ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.moveTo(8, fenceY); ctx.lineTo(W - 8, fenceY); ctx.stroke();
-    for (let i = 0; i < 20; i++) {
-      const fx = 14 + i * ((W - 28) / 20);
-      ctx.beginPath();
-      ctx.moveTo(fx, fenceY);
-      ctx.lineTo(fx - 4, fenceY - 20);
-      ctx.lineTo(fx + 4, fenceY - 20);
-      ctx.closePath(); ctx.fillStyle = '#c7ab8f'; ctx.fill();
-    }
-
-    // ambient fireflies floating around
-    for (let i = 0; i < 14; i++) {
-      const fx = (i * 173 + 31) % W;
-      const fy = H * 0.20 + ((i * 67) % (H * 0.42));
-      const drift = Math.sin(time * 1.2 + i * 1.7) * 12;
-      const tw = 0.5 + 0.5 * Math.sin(time * 2.4 + i * 3.1);
-      ctx.globalAlpha = 0.25 + tw * 0.5;
-      ctx.fillStyle = '#ffe9a8';
-      ctx.beginPath(); ctx.arc(fx + drift, fy + Math.cos(time * 0.9 + i) * 8, 2.4, 0, 7); ctx.fill();
-      ctx.globalAlpha = 1;
-    }
-
-    // house body
-    const hw = W * 0.86, hx = W * 0.07, hy = H * 0.16, hh = H * 0.52;
-    roundRect(hx, hy, hw, hh, 14);
-    ctx.fillStyle = '#6b4a8f'; ctx.fill();
-    ctx.strokeStyle = '#4a3270'; ctx.lineWidth = 5; ctx.stroke();
-
-    // roof
-    ctx.beginPath();
-    ctx.moveTo(hx - 24, hy);
-    ctx.lineTo(W * 0.5, hy - hh * 0.42);
-    ctx.lineTo(hx + hw + 24, hy);
-    ctx.closePath();
-    ctx.fillStyle = '#8a3fa0'; ctx.fill();
-    ctx.strokeStyle = '#5e2a78'; ctx.lineWidth = 5; ctx.stroke();
-    // roof trim
-    ctx.fillStyle = '#ffd94a';
-    for (let i = 0; i < 5; i++) {
-      const px = hx + 40 + (hw / 4) * i;
-      ctx.beginPath(); ctx.arc(px, hy - 8, 7, 0, 7); ctx.fill();
-    }
+    drawFurniture(r);
 
     // windows + doors
-    spots.forEach(function (sp) {
+    const litGlow = houseLit ? 1 : 0;
+    roomSpots.forEach(function (sp) {
       const w = sp.w, h = sp.h;
       const x = sp.x - w / 2, y = sp.yTop;
       if (sp.isDoor) {
@@ -542,17 +485,16 @@
         // door handle
         ctx.fillStyle = '#ffd94a';
         ctx.beginPath(); ctx.arc(sp.x + w * 0.22, y + h * 0.55, 5, 0, 7); ctx.fill();
-        // warm light from the door crack
+        // warm light from door crack
         ctx.fillStyle = '#ffe9a8';
         ctx.globalAlpha = 0.25 + 0.1 * Math.sin(time * 3);
         ctx.beginPath(); ctx.arc(sp.x, y + h * 0.18, 6, 0, 7); ctx.fill();
         ctx.globalAlpha = 1;
       } else {
         roundRect(x, y, w, h, 12);
-        // softly glowing window pane
         const glow = ctx.createLinearGradient(0, y, 0, y + h);
-        glow.addColorStop(0, '#ffdf9e');
-        glow.addColorStop(1, '#ffb86b');
+        glow.addColorStop(0, litGlow ? '#fff3c0' : '#ffdf9e');
+        glow.addColorStop(1, litGlow ? '#ffe9b0' : '#ffb86b');
         ctx.fillStyle = glow; ctx.fill();
         ctx.strokeStyle = '#1c3058'; ctx.lineWidth = 5; ctx.stroke();
         // window frame cross
@@ -560,47 +502,116 @@
         ctx.beginPath(); ctx.moveTo(sp.x, y + 6); ctx.lineTo(sp.x, y + h - 6); ctx.stroke();
         ctx.beginPath(); ctx.moveTo(x + 6, sp.yTop + h * 0.5); ctx.lineTo(x + w - 6, sp.yTop + h * 0.5); ctx.stroke();
       }
-      // window sill / flower box
       if (!sp.isDoor) {
+        // flower box
         ctx.fillStyle = '#ffb02e';
         roundRect(x - 4, y + h - 8, w + 8, 12, 4); ctx.fill();
-        for (let f = 0; f < 4; f++) {
-          ctx.fillStyle = ['#ff6b8a', '#ffd94a', '#ff8ab8', '#b8ff6b'][f];
-          ctx.beginPath(); ctx.arc(x + 8 + f * (w - 16) / 3, y + h - 4, 6, 0, 7); ctx.fill();
+        for (let f2 = 0; f2 < 4; f2++) {
+          ctx.fillStyle = ['#ff6b8a', '#ffd94a', '#ff8ab8', '#b8ff6b'][f2];
+          ctx.beginPath(); ctx.arc(x + 8 + f2 * (w - 16) / 3, y + h - 4, 6, 0, 7); ctx.fill();
         }
       }
     });
 
-    // chimney
-    const chx = hx + hw * 0.68;
-    roundRect(chx, hy - 70, 26, 70, 6);
-    ctx.fillStyle = '#8a3fa0'; ctx.fill();
-    ctx.strokeStyle = '#5e2a78'; ctx.lineWidth = 4; ctx.stroke();
-    // smoke puffs
-    for (let i = 0; i < 3; i++) {
-      const p = time * 0.8 + i * 0.4;
-      ctx.globalAlpha = 0.35;
-      ctx.fillStyle = '#cfd8ff';
-      ctx.beginPath(); ctx.arc(chx + 13 + Math.sin(p) * 6, hy - 70 - 14 - i * 16, 9, 0, 7); ctx.fill();
-    }
-    ctx.globalAlpha = 1;
-
-    // soft vignette for cozy depth
+    // soft vignette
     const v = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.28, W / 2, H / 2, Math.max(W, H) * 0.62);
     v.addColorStop(0, 'rgba(0,0,0,0)');
-    v.addColorStop(1, 'rgba(10,12,30,0.42)');
+    v.addColorStop(1, 'rgba(10,12,30,0.4)');
     ctx.fillStyle = v;
     ctx.fillRect(0, 0, W, H);
   }
 
+  function drawFurniture(r) {
+    const id = ROOMS.indexOf(r);
+    // room emoji badge (visual room indicator, no reading)
+    ctx.font = (H * 0.07) + 'px "Apple Color Emoji","Segoe UI Emoji",sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(r.emoji, 18, 18 + H * 0.05);
+
+    if (id === 0) { // living room: fireplace + rug
+      const fx = W * 0.5, fy = H * 0.80;
+      roundRect(fx - 34, fy - 90, 68, 90, 10); ctx.fillStyle = '#7a5a8f'; ctx.fill(); ctx.strokeStyle = '#4a2a6e'; ctx.lineWidth = 4; ctx.stroke();
+      roundRect(fx - 24, fy - 40, 48, 40, 6); ctx.fillStyle = '#3a2a4a'; ctx.fill();
+      // fire
+      for (let i = 0; i < 6; i++) {
+        const fl = Math.sin(time * 6 + i) * 5;
+        ctx.fillStyle = i % 2 ? '#ff8a3a' : '#ffd94a';
+        ctx.beginPath(); ctx.arc(fx - 18 + i * 6 + fl, fy - 44 - i * 3, 6, 0, 7); ctx.fill();
+      }
+      ctx.fillStyle = '#ffd94a'; ctx.globalAlpha = 0.18 + 0.1 * Math.sin(time * 7);
+      ctx.beginPath(); ctx.arc(fx, fy - 50, 26, 0, 7); ctx.fill(); ctx.globalAlpha = 1;
+      // rug
+      ctx.fillStyle = '#b05a6e';
+      roundRect(fx - 90, fy + 6, 180, 26, 14); ctx.fill();
+      ctx.fillStyle = '#e88aa0'; ctx.globalAlpha = 0.6;
+      roundRect(fx - 80, fy + 11, 160, 16, 12); ctx.fill(); ctx.globalAlpha = 1;
+    }
+    else if (id === 1) { // kitchen: stove + table
+      const sx = W * 0.5, sy = H * 0.80;
+      roundRect(sx - 40, sy - 70, 80, 70, 8); ctx.fillStyle = '#8a8a7a'; ctx.fill(); ctx.strokeStyle = '#5a5a4a'; ctx.lineWidth = 4; ctx.stroke();
+      ctx.fillStyle = '#3a3a2a';
+      roundRect(sx - 34, sy - 58, 68, 6, 2); ctx.fill();
+      ctx.fillStyle = '#ffd94a';
+      ctx.beginPath(); ctx.arc(sx - 24, sy - 50, 4, 0, 7); ctx.fill();
+      ctx.beginPath(); ctx.arc(sx + 24, sy - 50, 4, 0, 7); ctx.fill();
+      // pot
+      roundRect(sx - 16, sy - 34, 32, 22, 4); ctx.fillStyle = '#3a3a4a'; ctx.fill();
+      ctx.fillStyle = '#4a4a5a';
+      roundRect(sx - 20, sy - 38, 40, 8, 3); ctx.fill();
+      // table
+      roundRect(sx - 60, sy + 8, 120, 14, 6); ctx.fillStyle = '#7a5a3a'; ctx.fill();
+      ctx.fillStyle = '#6a4a2a';
+      ctx.fillRect(sx - 56, sy + 22, 8, 14);
+      ctx.fillRect(sx + 48, sy + 22, 8, 14);
+    }
+    else if (id === 2) { // bedroom: bed + lamp
+      const bx = W * 0.5, by = H * 0.80;
+      roundRect(bx - 80, by - 34, 160, 34, 8); ctx.fillStyle = '#6b8ab8'; ctx.fill(); ctx.strokeStyle = '#4a6a9f'; ctx.lineWidth = 4; ctx.stroke();
+      roundRect(bx - 74, by - 46, 148, 16, 8); ctx.fillStyle = '#9ab8e8'; ctx.fill();
+      ctx.fillStyle = '#e8f0ff'; ctx.globalAlpha = 0.7;
+      roundRect(bx - 30, by - 52, 60, 22, 10); ctx.fill(); ctx.globalAlpha = 1;
+      // night lamp
+      roundRect(bx + 70, by - 60, 10, 44, 4); ctx.fillStyle = '#3a2a4a'; ctx.fill();
+      ctx.fillStyle = '#ffd94a'; ctx.globalAlpha = 0.5 + 0.3 * Math.sin(time * 5);
+      ctx.beginPath(); ctx.arc(bx + 75, by - 64, 9, 0, 7); ctx.fill(); ctx.globalAlpha = 1;
+      // rug
+      ctx.fillStyle = '#4a7a9f';
+      roundRect(bx - 60, by + 8, 120, 16, 10); ctx.fill();
+    }
+    else if (id === 3) { // attic: boxes + hanging lamp
+      const ax = W * 0.5, ay = H * 0.82;
+      roundRect(ax - 70, ay - 26, 56, 26, 4); ctx.fillStyle = '#8a6a4a'; ctx.fill(); ctx.strokeStyle = '#5a3a2a'; ctx.lineWidth = 3; ctx.stroke();
+      roundRect(ax + 10, ay - 20, 60, 20, 4); ctx.fillStyle = '#9a7a5a'; ctx.fill(); ctx.strokeStyle = '#5a3a2a'; ctx.lineWidth = 3; ctx.stroke();
+      // hanging lamp
+      ctx.strokeStyle = '#3a2a1a'; ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.moveTo(W * 0.5, H * 0.06); ctx.lineTo(W * 0.5, H * 0.20); ctx.stroke();
+      ctx.fillStyle = '#ffd94a'; ctx.globalAlpha = 0.4 + 0.2 * Math.sin(time * 4);
+      ctx.beginPath(); ctx.arc(W * 0.5, H * 0.22, 14, 0, 7); ctx.fill(); ctx.globalAlpha = 1;
+    }
+    else { // basement: shelves + barrels
+      const sx = W * 0.18, sy = H * 0.82;
+      roundRect(sx - 40, sy - 70, 80, 70, 4); ctx.fillStyle = '#4a3a2a'; ctx.fill(); ctx.strokeStyle = '#2a1a12'; ctx.lineWidth = 3; ctx.stroke();
+      ctx.fillStyle = '#3a2a1a';
+      ctx.fillRect(sx - 40, sy - 44, 80, 5);
+      ctx.fillRect(sx - 40, sy - 20, 80, 5);
+      ctx.fillStyle = '#7a6a5a';
+      ctx.beginPath(); ctx.arc(sx - 30, sy - 54, 10, 0, 7); ctx.fill();
+      ctx.beginPath(); ctx.arc(sx + 30, sy - 30, 10, 0, 7); ctx.fill();
+      // barrel
+      const bx = W * 0.82, by = H * 0.84;
+      roundRect(bx - 16, by - 36, 32, 36, 6); ctx.fillStyle = '#6a4a2a'; ctx.fill(); ctx.strokeStyle = '#3a2a12'; ctx.lineWidth = 3; ctx.stroke();
+      ctx.fillStyle = '#3a2a12';
+      ctx.beginPath(); ctx.moveTo(bx - 16, by - 22); ctx.lineTo(bx + 16, by - 22); ctx.stroke();
+    }
+  }
+
   /* ---------- spawn logic ---------- */
   function spawnCharacter() {
-    // pick a spot that has room (no character currently in it)
-    const free = spots.filter(function (s) { return !s.occupied; });
+    const free = roomSpots.filter(function (s) { return !s.occupied; });
     if (!free.length) return;
     const sp = free[Math.floor(rng() * free.length)];
     const kind = Math.floor(rng() * 3); // 0 ghost, 1 zombie, 2 monster
-    const scale = 0.9 + rng() * 0.35;
+    const scale = 0.85 + rng() * 0.35;
     characters.push({
       spot: sp,
       kind: kind,
@@ -653,36 +664,64 @@
     c.bounce = 0.0001;
     synthGiggle();
     starCount++;
-    starNumEl.textContent = starCount;
-    // star reward (rainbow every 5th star)
     const isMilestone = starCount % 5 === 0;
-    stars.push({ x: c.x, y: c.y - 60 * c.scale, vx: (rng() - 0.5) * 30, vy: -1.6, life: 0, scale: 1.5 + rng(), color: isMilestone ? '#ff8ae0' : '#ffd94a' });
+    const isFull = starCount >= starGoal;
+    stars.push({ x: c.x, y: c.y - 60 * c.scale, vx: (rng() - 0.5) * 30, vy: -1.6, life: 0, scale: 1.5 + rng(), color: (isMilestone || isFull) ? '#ff8ae0' : '#ffd94a' });
     for (let i = 0; i < 6; i++) {
       const a = i * Math.PI / 3;
       sparks.push({ x: c.x, y: c.y - 40 * c.scale, vx: Math.cos(a) * 2.4, vy: Math.sin(a) * 2.4 - 1, life: 0 });
     }
     if (isMilestone) {
-      // celebration: confetti + fanfare
       celebrate = 1;
       synthFanfare();
-      for (let i = 0; i < 26; i++) {
-        const a = rng() * Math.PI * 2;
-        const sp = 2 + rng() * 3.5;
-        confetti.push({
-          x: c.x, y: c.y - 40 * c.scale,
-          vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 2,
-          life: 0, rot: rng() * 6,
-          color: ['#ff8ae0', '#ffd94a', '#8ae0ff', '#8affa0', '#c9a0ff'][Math.floor(rng() * 5)]
-        });
-      }
+      burst(c.x, c.y - 40 * c.scale, 26);
     }
+    if (isFull && !houseLit) {
+      houseLit = true;
+      litTimer = 0;
+      synthFanfare();
+      celebrate = 1;
+      burst(W / 2, H * 0.3, 40);
+    }
+  }
+
+  function burst(x, y, n) {
+    for (let i = 0; i < n; i++) {
+      const a = rng() * Math.PI * 2;
+      const sp = 2 + rng() * 3.5;
+      confetti.push({
+        x: x, y: y,
+        vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 2,
+        life: 0, rot: rng() * 6,
+        color: ['#ff8ae0', '#ffd94a', '#8ae0ff', '#8affa0', '#c9a0ff'][Math.floor(rng() * 5)]
+      });
+    }
+  }
+
+  /* ---------- room navigation ---------- */
+  function switchRoom(dir) {
+    if (fadeState !== 0) return;
+    targetRoom = (currentRoom + dir + ROOMS.length) % ROOMS.length;
+    fadeState = 1; fadeT = 0;
+    synthWhoosh();
+  }
+
+  function bindNav(btn, dir) {
+    function press(e) {
+      e.preventDefault && e.preventDefault();
+      btn.classList.add('pressed');
+      switchRoom(dir);
+      setTimeout(function () { btn.classList.remove('pressed'); }, 180);
+    }
+    btn.addEventListener('pointerdown', press, { passive: false });
+    btn.addEventListener('touchstart', press, { passive: false });
   }
 
   function bindInput() {
     const opts = { passive: false, capture: true };
     function handle(e) {
       if (e.cancelable !== false) e.preventDefault();
-      const touches = e.touches && e.touches.length ? e.touches : (e.pointerType ? [e] : [e]);
+      const touches = e.touches && e.touches.length ? e.touches : [e];
       for (let i = 0; i < touches.length; i++) {
         const t = touches[i];
         onDown(t.clientX !== undefined ? t.clientX : t.pageX, t.clientY !== undefined ? t.clientY : t.pageY);
@@ -690,7 +729,6 @@
     }
     canvas.addEventListener('pointerdown', handle, opts);
     canvas.addEventListener('touchstart', handle, opts);
-    // stop native gestures on the whole document
     document.addEventListener('touchmove', function (e) { e.preventDefault(); }, opts);
     document.addEventListener('gesturestart', function (e) { e.preventDefault(); }, opts);
     document.addEventListener('gesturechange', function (e) { e.preventDefault(); }, opts);
@@ -702,14 +740,91 @@
     startOverlay.addEventListener('touchstart', handle, opts);
   }
 
+  /* ---------- HUD (goal meter + room dots) ---------- */
+  function drawHUD() {
+    const topY = 26;
+    const slot = Math.min(W / starGoal, 34);
+    const totalW = slot * (starGoal + 1) + 40;
+    let x0 = W / 2 - totalW / 2;
+
+    // lamp icon at far left of meter
+    ctx.font = (H * 0.06) + 'px "Apple Color Emoji","Segoe UI Emoji",sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('💡', x0 + 20, topY + 16);
+    x0 += 46;
+
+    for (let i = 0; i < starGoal; i++) {
+      const filled = i < starCount;
+      const cx = x0 + slot * i + slot / 2;
+      const cy = topY + 16;
+      // slot backing
+      ctx.fillStyle = '#2a2a4a';
+      ctx.globalAlpha = 0.9;
+      ctx.beginPath(); ctx.arc(cx, cy, slot * 0.42, 0, 7); ctx.fill();
+      ctx.globalAlpha = 1;
+      if (filled) {
+        starShape(cx, cy, slot * 0.34, -Math.PI / 2, '#ffd94a');
+      } else {
+        ctx.fillStyle = '#8a8ab0';
+        ctx.globalAlpha = 0.5;
+        ctx.beginPath(); ctx.arc(cx, cy, slot * 0.42, 0, 7); ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    // house glow when full
+    if (houseLit) {
+      ctx.globalAlpha = 0.25 + 0.1 * Math.sin(time * 5);
+      ctx.fillStyle = '#ffd94a';
+      ctx.beginPath(); ctx.arc(W / 2, topY + 16, totalW * 0.4, 0, 7); ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+
+    // room dots (which room you are in)
+    const dotN = ROOMS.length;
+    const dotW = 26;
+    let dx = W / 2 - (dotN * dotW) / 2;
+    const dy = H - 26;
+    for (let i = 0; i < dotN; i++) {
+      const active = i === currentRoom;
+      ctx.fillStyle = active ? '#ffd94a' : 'rgba(255,255,255,0.35)';
+      ctx.beginPath(); ctx.arc(dx + dotW * i + dotW / 2, dy, 7, 0, 7); ctx.fill();
+      if (active) {
+        ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.stroke();
+      }
+    }
+  }
+
   /* ---------- update ---------- */
   function update(dt) {
     time += dt;
 
-    // spawn logic
+    // room switch fade
+    if (fadeState === 1) {
+      fadeT += dt;
+      if (fadeT >= 0.45) {
+        currentRoom = targetRoom;
+        buildRoom();
+        fadeState = 2; fadeT = 0;
+      }
+    } else if (fadeState === 2) {
+      fadeT += dt;
+      if (fadeT >= 0.45) fadeState = 0;
+    }
+
+    // house-lit celebration then reset for endless replay
+    if (houseLit) {
+      litTimer += dt;
+      if (litTimer > 3) {
+        houseLit = false;
+        starCount = 0;
+      }
+    }
+
+    // spawn logic (more characters per room now)
     spawnTimer -= dt;
-    if (spawnTimer <= 0 && characters.length < 4) {
-      spawnTimer = 1.0 + rng() * 1.5;
+    if (spawnTimer <= 0 && characters.length < 3) {
+      spawnTimer = 0.9 + rng() * 1.4;
       spawnCharacter();
     }
 
@@ -722,12 +837,10 @@
       c.appear = Math.min(c.appear + dt * 8, 1);
       c.cue = Math.min(c.cue + dt, 1);
       if (c.bounce > 0) c.bounce += dt * 10;
-      // duck back after life seconds (or shortly after tapped bounce)
       const lifeLimit = c.tapped ? 0.6 : c.life;
       if (c.dur >= lifeLimit) {
         c.active = false;
         c.spot.occupied = false;
-        // remove after fade handled in draw via appear
         setTimeout(function () { c.dead = true; }, 250);
       }
     }
@@ -768,16 +881,17 @@
   /* ---------- render ---------- */
   function draw() {
     ctx.clearRect(0, 0, W, H);
-    drawHouse();
 
-    // characters (behind front of window: draw only when appeared enough)
+    // during fade to dark, draw old room; after switch, draw new room
+    drawRoom();
+
+    // characters
     characters.forEach(function (c) {
       if (c.dead) return;
       const alpha = Math.min(1, c.appear);
       const rise = (1 - c.appear) * 30;
       ctx.save();
       ctx.globalAlpha = alpha;
-      // warm "come play!" glow right when they peek out
       if (c.cue < 0.55) {
         const g = Math.sin(c.cue * Math.PI) * 0.45;
         ctx.globalAlpha = alpha * g;
@@ -801,10 +915,10 @@
 
     // star rewards
     stars.forEach(function (s) {
-      star(s.x, s.y, s.scale * 6, s.life * 6, s.color);
+      starShape(s.x, s.y, s.scale * 6, s.life * 6, s.color);
     });
 
-    // celebration confetti
+    // confetti
     confetti.forEach(function (s) {
       ctx.save();
       ctx.translate(s.x, s.y);
@@ -816,10 +930,23 @@
       ctx.globalAlpha = 1;
     });
 
-    // full-screen soft glow pulse during milestone celebration
+    // milestone celebration glow
     if (celebrate > 0) {
       ctx.globalAlpha = celebrate * 0.18;
       ctx.fillStyle = '#ffd94a';
+      ctx.fillRect(0, 0, W, H);
+      ctx.globalAlpha = 1;
+    }
+
+    drawHUD();
+
+    // room-switch fade overlay
+    let fadeAlpha = 0;
+    if (fadeState === 1) fadeAlpha = fadeT / 0.45;
+    else if (fadeState === 2) fadeAlpha = 1 - fadeT / 0.45;
+    if (fadeAlpha > 0) {
+      ctx.globalAlpha = Math.min(1, fadeAlpha);
+      ctx.fillStyle = '#0c1a2e';
       ctx.fillRect(0, 0, W, H);
       ctx.globalAlpha = 1;
     }
@@ -847,6 +974,8 @@
 
   resize();
   bindInput();
+  bindNav(leftBtn, -1);
+  bindNav(rightBtn, 1);
   requestAnimationFrame(loop);
 })();
 </script>
